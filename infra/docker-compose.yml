@@ -1,0 +1,80 @@
+version: "3.9"
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    depends_on:
+      - ui
+      - control-plane
+      - langgraph
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+
+  ui:
+    build:
+      context: ../ui
+      dockerfile: Dockerfile
+    expose:
+      - "3000"
+
+  control-plane:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    environment:
+      PYTHONPATH: /app/backend/src
+      LANGGRAPH_BASE_URL: http://langgraph:2024
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/platform
+      REQUIRE_INTERNAL_PROXY: "true"
+    command:
+      [
+        "sh",
+        "-c",
+        "alembic -c /app/backend/alembic.ini upgrade head && python -c \"from omo_platform.db.seed import seed_defaults; seed_defaults()\" && uvicorn omo_platform.api.app:app --host 0.0.0.0 --port 8001",
+      ]
+    depends_on:
+      - postgres
+      - redis
+      - langgraph
+
+  langgraph:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    working_dir: /app
+    environment:
+      PYTHONPATH: /app/backend/src
+      LANGSMITH_TRACING: "false"
+    command:
+      [
+        "langgraph",
+        "dev",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "2024",
+        "--no-reload",
+        "--no-browser",
+      ]
+    volumes:
+      - ../infra/chinook/chinook.db:/app/infra/chinook/chinook.db:ro
+    depends_on:
+      - postgres
+      - redis
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: platform
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+
+volumes:
+  postgres_data:

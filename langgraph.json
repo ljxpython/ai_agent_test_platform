@@ -1,0 +1,8 @@
+{
+  "graphs": {
+    "sql_agent": "./backend/src/omo_platform/graphs/sql_agent.py:graph"
+  },
+  "dependencies": ["./backend"],
+  "env": ".env",
+  "python_version": "3.12"
+}
