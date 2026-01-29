@@ -134,3 +134,119 @@ async def stream_run_events(
             await asyncio.sleep(1.0)
 
     return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@router.get("/runs/{run_id}/agui/events")
+async def stream_run_agui_events(
+    request: Request,
+    ctx: V1ContextDep,
+    run_id: str,
+) -> StreamingResponse:
+    """AG-UI-like SSE derived from canonical events.
+
+    This endpoint is resumable via Last-Event-ID and uses SSE `id:` as the canonical seq.
+    """
+
+    try:
+        rid = uuid.UUID(run_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    last_event_id = request.headers.get("Last-Event-ID")
+    last = 0
+    if last_event_id:
+        try:
+            last = int(last_event_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid Last-Event-ID")
+        if last < 0:
+            raise HTTPException(status_code=400, detail="Invalid Last-Event-ID")
+
+    with SessionLocal() as session:
+        pid = _require_project(session, project_id=ctx.project_id)
+        run = (
+            session.execute(
+                select(RunV1)
+                .where(RunV1.project_id == pid)
+                .where(RunV1.run_id == rid)
+            )
+            .scalars()
+            .first()
+        )
+        if run is None:
+            raise HTTPException(status_code=404, detail="Not found")
+        thread_id = str(run.thread_id)
+
+        min_seq = (
+            session.execute(
+                select(func.min(RunEventV1.seq))
+                .where(RunEventV1.project_id == pid)
+                .where(RunEventV1.run_id == rid)
+            )
+            .scalar()
+        )
+        if last > 0:
+            if min_seq is None or last < int(min_seq) - 1:
+                raise HTTPException(status_code=410, detail="events expired")
+
+    def _map(evt_type: str, payload: dict) -> dict:
+        if evt_type == "run.started":
+            return {"type": "RUN_STARTED", "threadId": thread_id, "runId": str(rid)}
+        if evt_type == "run.finished":
+            return {"type": "RUN_FINISHED", "threadId": thread_id, "runId": str(rid)}
+        if evt_type == "run.error":
+            return {"type": "RUN_ERROR", "message": str((payload or {}).get("error") or "error")}
+        if evt_type == "message.text":
+            return {
+                "type": "TEXT_MESSAGE",
+                "messageId": None,
+                "role": "assistant",
+                "content": str((payload or {}).get("content") or ""),
+            }
+        if evt_type == "ui.card":
+            return {
+                "type": "CUSTOM_EVENT",
+                "name": "UI_CARD",
+                "payload": payload or {},
+            }
+        return {"type": "CUSTOM_EVENT", "name": "CANONICAL", "payload": {"type": evt_type, **(payload or {})}}
+
+    async def gen():
+        nonlocal last
+        while True:
+            if await request.is_disconnected():
+                return
+
+            def _fetch():
+                with SessionLocal() as session:
+                    pid = _require_project(session, project_id=ctx.project_id)
+                    rows = (
+                        session.execute(
+                            select(RunEventV1)
+                            .where(RunEventV1.project_id == pid)
+                            .where(RunEventV1.run_id == rid)
+                            .where(RunEventV1.seq > last)
+                            .order_by(RunEventV1.seq.asc())
+                        )
+                        .scalars()
+                        .all()
+                    )
+                    return rows
+
+            rows = await asyncio.to_thread(_fetch)
+            if rows:
+                for row in rows:
+                    frame = _map(row.type, row.payload or {})
+                    if frame.get("type") == "TEXT_MESSAGE" and frame.get("messageId") is None:
+                        frame["messageId"] = f"msg_{rid}_{int(row.seq)}"
+
+                    data = json.dumps(frame, separators=(",", ":"), ensure_ascii=True)
+                    last = int(row.seq)
+                    yield f"id: {last}\n".encode("utf-8")
+                    yield f"data: {data}\n\n".encode("utf-8")
+                continue
+
+            yield b": ping\n\n"
+            await asyncio.sleep(1.0)
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
