@@ -123,6 +123,8 @@ def create_run(
             status="running",
             assistant_id=req.assistant_id,
             idempotency_key=idempotency_key,
+            input_json=req.input,
+            config_json=req.config,
             created_at=now,
             updated_at=now,
         )

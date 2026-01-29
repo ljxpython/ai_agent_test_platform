@@ -64,6 +64,9 @@ class RunV1(BaseV1):
     idempotency_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    input_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=None)
+    config_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=None)
+
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=datetime.datetime.utcnow
     )
