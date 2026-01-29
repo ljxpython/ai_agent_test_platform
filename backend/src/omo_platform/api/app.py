@@ -12,6 +12,7 @@ import os
 
 from fastapi import FastAPI
 from fastapi import Request
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import PlainTextResponse
 
 from omo_platform.agui_gateway.router import router as agui_gateway_router
@@ -21,6 +22,34 @@ from omo_platform.api.v1.router import router as v1_router
 
 
 app = FastAPI()
+
+
+def _parse_csv_env(name: str) -> list[str]:
+    raw = os.getenv(name) or ""
+    out: list[str] = []
+    for part in raw.split(","):
+        p = part.strip()
+        if p:
+            out.append(p)
+    return out
+
+
+_cors_origins = _parse_csv_env("CORS_ALLOW_ORIGINS")
+if _cors_origins:
+    # v1 is designed for UI/API split. Keep CORS opt-in via env.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "Last-Event-ID",
+            "Idempotency-Key",
+        ],
+        expose_headers=["Content-Location"],
+    )
 
 
 def _is_truthy_env(value: str | None) -> bool:
