@@ -17,6 +17,7 @@ from starlette.responses import PlainTextResponse
 from omo_platform.agui_gateway.router import router as agui_gateway_router
 from omo_platform.langgraph_proxy.router import router as langgraph_proxy_router
 from omo_platform.api.platform_router import router as platform_router
+from omo_platform.api.v1.router import router as v1_router
 
 
 app = FastAPI()
@@ -36,7 +37,8 @@ async def _require_internal_proxy_header(request: Request, call_next):
         path = request.url.path
 
         # Local health checks must stay unauthenticated.
-        if path != "/healthz" and path.startswith("/api/"):
+        # `/api/v1/*` is intended to be a public API surface, so never gate it.
+        if path != "/healthz" and path.startswith("/api/") and not path.startswith("/api/v1/"):
             if request.headers.get("X-Internal-Proxy") != "1":
                 return PlainTextResponse("Forbidden", status_code=403)
 
@@ -46,6 +48,7 @@ async def _require_internal_proxy_header(request: Request, call_next):
 app.include_router(agui_gateway_router)
 app.include_router(langgraph_proxy_router)
 app.include_router(platform_router)
+app.include_router(v1_router)
 
 
 @app.get("/healthz")
