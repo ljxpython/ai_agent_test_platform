@@ -38,7 +38,9 @@ class ThreadV1(BaseV1):
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=datetime.datetime.utcnow
     )
-    metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    metadata_json: Mapped[dict] = mapped_column(
+        "metadata", JSONB, nullable=False, default=dict
+    )
 
 
 class RunV1(BaseV1):

@@ -61,7 +61,7 @@ def create_thread(ctx: V1ContextDep, req: CreateThreadRequest) -> CreateThreadRe
     with SessionLocal() as session:
         pid = _require_project(session, project_id=ctx.project_id)
 
-        t = ThreadV1(project_id=pid, metadata=req.metadata or {})
+        t = ThreadV1(project_id=pid, metadata_json=req.metadata or {})
         session.add(t)
         session.commit()
 
